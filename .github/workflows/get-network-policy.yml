@@ -14,10 +14,9 @@ jobs:
   run-network-policy:
     runs-on: ubuntu-latest
     env:
-      # Databricks CLI가 github-oidc auth type으로 자동 토큰 교환 수행
+      # Workspace-level OIDC: Account IP ACL 우회, workspace IP ACL에서 GitHub Actions IP 허용
       DATABRICKS_AUTH_TYPE: github-oidc
-      DATABRICKS_HOST: https://accounts.azuredatabricks.net
-      DATABRICKS_ACCOUNT_ID: ${{ vars.DATABRICKS_ACCOUNT_ID }}
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_WORKSPACE_URL }}
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_SP_CLIENT_ID }}
     steps:
       - name: Checkout
@@ -28,12 +27,10 @@ jobs:
 
       # WIF 인증 확인
       - name: Verify Databricks authentication (WIF)
-        run: databricks account service-principals list --count 1
+        run: databricks current-user me
 
       # 스크립트를 워크스페이스에 업로드
       - name: Upload script to workspace
-        env:
-          DATABRICKS_HOST: ${{ vars.DATABRICKS_WORKSPACE_URL }}
         run: |
           databricks workspace import \
             /Shared/admin/get_network_policy \
@@ -44,8 +41,6 @@ jobs:
 
       # Job 제출 및 완료 대기
       - name: Submit and wait for job
-        env:
-          DATABRICKS_HOST: ${{ vars.DATABRICKS_WORKSPACE_URL }}
         run: |
           RUN_ID=$(databricks jobs submit --json '{
             "run_name": "get-network-policy",

@@ -38,25 +38,3 @@ resource "databricks_workspace_network_option" "this" {
   workspace_id      = azurerm_databricks_workspace.ws.workspace_id
   network_policy_id = databricks_account_network_policy.this.network_policy_id
 }
-
-#--------------------------------------------------------------
-# Workspace IP Access List
-#--------------------------------------------------------------
-resource "databricks_workspace_conf" "ip_access" {
-  count = var.enable_ip_access_list ? 1 : 0
-
-  custom_config = {
-    "enableIpAccessLists" = true
-  }
-
-  depends_on = [databricks_mws_permission_assignment.admin_user]
-}
-
-resource "databricks_ip_access_list" "allow" {
-  count        = var.enable_ip_access_list ? 1 : 0
-  label        = "${local.resource_name}-allow"
-  list_type    = "ALLOW"
-  ip_addresses = var.allowed_ip_addresses
-
-  depends_on = [databricks_workspace_conf.ip_access]
-}
