@@ -1,0 +1,110 @@
+name: Get Network Policy
+
+on:
+  schedule:
+    # 매일 09:00 UTC (한국시간 18:00) 실행
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # GitHub OIDC 토큰 발급에 필요
+  contents: read
+
+env:
+  DATABRICKS_HOST: https://accounts.azuredatabricks.net
+  DATABRICKS_ACCOUNT_ID: ${{ vars.DATABRICKS_ACCOUNT_ID }}
+  DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_SP_CLIENT_ID }}
+  DATABRICKS_WORKSPACE_URL: ${{ vars.DATABRICKS_WORKSPACE_URL }}
+  DATABRICKS_WORKSPACE_ID: ${{ vars.DATABRICKS_WORKSPACE_ID }}
+
+jobs:
+  run-network-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      # WIF: GitHub OIDC 토큰으로 Databricks Account API 인증
+      - name: Authenticate to Databricks (WIF)
+        run: |
+          # GitHub OIDC 토큰 획득 (audience = Databricks Account ID)
+          OIDC_TOKEN=$(curl -sLS \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$DATABRICKS_ACCOUNT_ID" \
+            | jq -r '.value')
+
+          # Databricks OIDC 토큰 교환 → Account API용 액세스 토큰
+          DATABRICKS_TOKEN=$(curl -sLS \
+            -X POST "${DATABRICKS_HOST}/oidc/accounts/${DATABRICKS_ACCOUNT_ID}/v1/token" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${OIDC_TOKEN}&client_id=${DATABRICKS_CLIENT_ID}" \
+            | jq -r '.access_token')
+
+          if [ -z "$DATABRICKS_TOKEN" ] || [ "$DATABRICKS_TOKEN" = "null" ]; then
+            echo "::error::Databricks 토큰 교환 실패"
+            exit 1
+          fi
+
+          echo "::add-mask::$DATABRICKS_TOKEN"
+          echo "DATABRICKS_TOKEN=$DATABRICKS_TOKEN" >> "$GITHUB_ENV"
+
+      # 스크립트를 워크스페이스에 업로드
+      - name: Upload script to workspace
+        env:
+          DATABRICKS_HOST: ${{ vars.DATABRICKS_WORKSPACE_URL }}
+        run: |
+          databricks workspace import \
+            /Shared/admin/get_network_policy \
+            --file scripts/get_network_policy.py \
+            --language PYTHON \
+            --format SOURCE \
+            --overwrite
+
+      # Job 제출 및 완료 대기
+      - name: Submit and wait for job
+        env:
+          DATABRICKS_HOST: ${{ vars.DATABRICKS_WORKSPACE_URL }}
+        run: |
+          RUN_ID=$(databricks jobs submit --json '{
+            "run_name": "get-network-policy",
+            "tasks": [
+              {
+                "task_key": "get_network_policy",
+                "notebook_task": {
+                  "notebook_path": "/Shared/admin/get_network_policy",
+                  "source": "WORKSPACE"
+                },
+                "new_cluster": {
+                  "spark_version": "16.2.x-scala2.12",
+                  "num_workers": 0,
+                  "node_type_id": "Standard_DS3_v2",
+                  "spark_conf": {
+                    "spark.databricks.cluster.profile": "singleNode",
+                    "spark.master": "local[*]"
+                  },
+                  "custom_tags": {
+                    "ResourceClass": "SingleNode"
+                  }
+                },
+                "libraries": [
+                  { "pypi": { "package": "requests" } }
+                ]
+              }
+            ]
+          }' | jq -r '.run_id')
+
+          echo "Run ID: $RUN_ID"
+
+          # 완료 대기
+          databricks runs get-output --run-id "$RUN_ID" --wait 2>/dev/null || true
+          STATE=$(databricks runs get --run-id "$RUN_ID" | jq -r '.state.result_state')
+
+          echo "Result: $STATE"
+          if [ "$STATE" != "SUCCESS" ]; then
+            echo "::error::Job 실행 실패 (state=$STATE)"
+            databricks runs get --run-id "$RUN_ID" | jq '.state'
+            exit 1
+          fi

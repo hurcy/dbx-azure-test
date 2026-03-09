@@ -1,0 +1,57 @@
+#--------------------------------------------------------------
+# Azure Subscription (Required)
+#--------------------------------------------------------------
+subscription_id = "<subscription_id>"
+
+#--------------------------------------------------------------
+# Common Configuration
+#--------------------------------------------------------------
+location             = "northeurope"
+prefix               = "hurcy-ws"
+enable_random_suffix = true  # Set to false for deterministic naming
+
+#--------------------------------------------------------------
+# Tags
+#--------------------------------------------------------------
+environment  = "Demo"
+owner_email  = "user@abc.com"
+remove_after = "2026-03-31"
+description  = "Databricks workspace with VNet injection and private endpoints"
+
+#--------------------------------------------------------------
+# Network Configuration
+#--------------------------------------------------------------
+cidr = "100.64.0.0/23"
+
+# Optional: Override automatic subnet CIDR calculation
+# public_subnet_cidr  = "100.64.0.0/25"
+# private_subnet_cidr = "100.64.0.128/25"
+# pe_subnet_cidr      = "100.64.1.0/26"
+# pbi_subnet_cidr     = "100.64.1.64/26"
+
+#--------------------------------------------------------------
+# Databricks Account Configuration
+#--------------------------------------------------------------
+databricks_account_id = "<databricks_account_id>"
+azure_tenant_id       = "<azure_tenant_id>"
+uc_metastore_name     = "<uc_metastore_name>"
+
+#--------------------------------------------------------------
+# Databricks Workspace Configuration
+#--------------------------------------------------------------
+sku                              = "premium"
+nsg_rules                        = "AllRules"  # AllRules, NoAzureDatabricksRules, NoAzureServiceRules
+public_network_access_enabled    = true
+default_storage_firewall_enabled = true
+no_public_ip                     = true
+storage_account_sku              = "Standard_GRS"
+
+#--------------------------------------------------------------
+# Private Endpoints
+#--------------------------------------------------------------
+enable_private_endpoints = true
+
+#--------------------------------------------------------------
+# Databricks Admin User
+#--------------------------------------------------------------
+admin_user_email = "user@abc.com"

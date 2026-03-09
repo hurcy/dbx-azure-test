@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:registry.terraform.io)",
+      "WebSearch",
+      "WebFetch(domain:github.com)"
+    ]
+  }
+}
