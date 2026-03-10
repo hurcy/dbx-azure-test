@@ -14,7 +14,7 @@ jobs:
   run-network-policy:
     runs-on: ubuntu-latest
     env:
-      # Workspace-level OIDC: Account IP ACL 우회, workspace IP ACL에서 GitHub Actions IP 허용
+      # Workspace-level OIDC: Account IP ACL 우회
       DATABRICKS_AUTH_TYPE: github-oidc
       DATABRICKS_HOST: ${{ vars.DATABRICKS_WORKSPACE_URL }}
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_SP_CLIENT_ID }}
@@ -59,6 +59,11 @@ jobs:
                     "spark.databricks.cluster.profile": "singleNode",
                     "spark.master": "local[*]"
                   },
+                  "spark_env_vars": {
+                    "DATABRICKS_ACCOUNT_ID": "{{secrets/admin/databricks-account-id}}",
+                    "DATABRICKS_CLIENT_ID": "{{secrets/admin/sp-client-id}}",
+                    "DATABRICKS_CLIENT_SECRET": "{{secrets/admin/sp-client-secret}}"
+                  },
                   "custom_tags": {
                     "ResourceClass": "SingleNode"
                   }
@@ -72,13 +77,26 @@ jobs:
 
           echo "Run ID: $RUN_ID"
 
-          # 완료 대기
-          databricks runs get-output --run-id "$RUN_ID" --wait 2>/dev/null || true
-          STATE=$(databricks runs get --run-id "$RUN_ID" | jq -r '.state.result_state')
+          # 완료 대기 (최대 30분)
+          databricks jobs get-run --run-id "$RUN_ID" --no-wait 2>/dev/null || true
 
-          echo "Result: $STATE"
-          if [ "$STATE" != "SUCCESS" ]; then
-            echo "::error::Job 실행 실패 (state=$STATE)"
-            databricks runs get --run-id "$RUN_ID" | jq '.state'
+          while true; do
+            STATE_JSON=$(databricks jobs get-run --run-id "$RUN_ID" 2>&1)
+            LIFE_CYCLE=$(echo "$STATE_JSON" | jq -r '.state.life_cycle_state')
+            echo "Life cycle: $LIFE_CYCLE"
+            if [ "$LIFE_CYCLE" = "TERMINATED" ] || [ "$LIFE_CYCLE" = "SKIPPED" ] || [ "$LIFE_CYCLE" = "INTERNAL_ERROR" ]; then
+              break
+            fi
+            sleep 30
+          done
+
+          RESULT=$(echo "$STATE_JSON" | jq -r '.state.result_state')
+          echo "Result: $RESULT"
+
+          if [ "$RESULT" != "SUCCESS" ]; then
+            echo "::error::Job 실행 실패 (state=$RESULT)"
+            echo "$STATE_JSON" | jq '.state'
+            # 실행 출력 확인
+            databricks jobs get-run-output --run-id "$RUN_ID" 2>&1 | jq '.error, .error_trace' || true
             exit 1
           fi
